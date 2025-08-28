@@ -14,13 +14,21 @@ class OCTREEANDBOID_TEST_API ACPP_BoidActor : public AActor
 public:	
 	// Sets default values for this actor's properties
 	ACPP_BoidActor();
+	
+	// Called every frame
+	virtual void Tick(float DeltaTime) override;
+
+	FVector Velocity;
+
+	void UpdateBoid(const FVector& NewVelocity, float DeltaTime);
 
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
-public:	
-	// Called every frame
-	virtual void Tick(float DeltaTime) override;
+private:
+	UPROPERTY(VisibleAnywhere)
+	UStaticMeshComponent* StaticMesh;
+	
 
 };
