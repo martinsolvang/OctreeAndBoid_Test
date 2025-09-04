@@ -26,8 +26,15 @@ private:
 	UPROPERTY(EditAnywhere)
 	float CohesionFactor;
 
+	//temporary list for calculation
 	UPROPERTY(VisibleAnywhere)
-	TArray<ACPP_BoidActor*> Boids;
+	TArray<ACPP_BoidActor*> NearbyBoids;
+
+	UPROPERTY(EditAnywhere)
+	float BoidVisionRange;
+
+	UPROPERTY(EditAnywhere)
+	float MaxSpeed;
 	
 protected:
 	// Called when the game starts or when spawned
@@ -36,6 +43,14 @@ protected:
 public:
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
+
+	void FindNearestBoids();
+
+	void CalculateSeparation(TArray<ACPP_BoidActor*> Boids);
+
+	void CalculateAlignment(TArray<ACPP_BoidActor*> Boids);
+
+	void CalculateCohesion(TArray<ACPP_BoidActor*> Boids);
 
 	void UpdateBoids(TArray<ACPP_BoidActor*> Boids);
 };
