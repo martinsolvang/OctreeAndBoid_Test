@@ -3,6 +3,8 @@
 
 #include "CPP_BoidActor.h"
 
+#include "Components/SphereComponent.h"
+
 // Sets default values
 ACPP_BoidActor::ACPP_BoidActor()
 {
@@ -12,7 +14,13 @@ ACPP_BoidActor::ACPP_BoidActor()
 	StaticMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("StaticMesh"));
 	RootComponent = StaticMesh;
 
+	PerecptionSphere = CreateDefaultSubobject<USphereComponent>(TEXT("Sphere"));
+	PerecptionSphere->SetupAttachment(RootComponent);
+
 	Velocity = FVector::ZeroVector;
+
+	PerecptionSphere->OnComponentBeginOverlap.AddDynamic(this,&ACPP_BoidActor::OnBeginOverlap);
+	PerecptionSphere->OnComponentEndOverlap.AddDynamic(this,&ACPP_BoidActor::OnEndOverlap);
 
 }
 
@@ -20,6 +28,8 @@ ACPP_BoidActor::ACPP_BoidActor()
 void ACPP_BoidActor::BeginPlay()
 {
 	Super::BeginPlay();
+	
+	Neighbours.Empty();
 	
 }
 
@@ -43,3 +53,43 @@ void ACPP_BoidActor::UpdateBoid(const FVector& NewVelocity, float DeltaTime)
 		SetActorRotation(NewRotation);
 	}
 }
+
+void ACPP_BoidActor::OnBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
+	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	if (OverlappedComponent && OtherActor && OtherActor == Cast<ACPP_BoidActor>(OtherActor))
+	{
+		Neighbours.Add(Cast<ACPP_BoidActor>(OtherActor));
+	}
+}
+
+void ACPP_BoidActor::OnEndOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
+	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
+{
+	if (OverlappedComponent && OtherActor && OtherActor == Cast<ACPP_BoidActor>(OtherActor))
+	{
+		Neighbours.Remove(Cast<ACPP_BoidActor>(OtherActor));
+	}
+}
+
+//Empties neighbour list and repopulates it
+void ACPP_BoidActor::CleanupNeighbours()
+{
+	Neighbours.Empty();
+	TArray<AActor*> OverlappingActors;
+	PerecptionSphere->GetOverlappingActors(OverlappingActors, ACPP_BoidActor::StaticClass());
+
+	Neighbours.Reserve(OverlappingActors.Num());
+	
+	for (int i = 0; i < OverlappingActors.Num(); i++)
+	{
+		if (OverlappingActors[i] == this) continue;
+		
+		if (IsValid(OverlappingActors[i]))
+		{
+			Neighbours.Add(Cast<ACPP_BoidActor>(OverlappingActors[i]));
+		}
+	}
+}
+
+
