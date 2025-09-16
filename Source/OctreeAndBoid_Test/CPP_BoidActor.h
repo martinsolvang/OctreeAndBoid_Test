@@ -23,6 +23,9 @@ public:
 	UPROPERTY(EditAnywhere)
 	USphereComponent* PerecptionSphere;
 
+	UPROPERTY(EditAnywhere)
+	float SeparationDistance;
+
 	FVector Velocity;
 
 	//List of nearby boids, updates with overlap events
@@ -35,6 +38,8 @@ public:
 
 	//Called in BoidManager, updates position and rotation each tick
 	void UpdateBoid(const FVector& NewVelocity, float DeltaTime);
+
+	TArray<ACPP_BoidActor*> GetNeighbours();
 
 	UFUNCTION()
 	void OnBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,

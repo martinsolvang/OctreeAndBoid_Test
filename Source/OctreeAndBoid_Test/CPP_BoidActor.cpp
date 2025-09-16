@@ -17,10 +17,12 @@ ACPP_BoidActor::ACPP_BoidActor()
 	PerecptionSphere = CreateDefaultSubobject<USphereComponent>(TEXT("Sphere"));
 	PerecptionSphere->SetupAttachment(RootComponent);
 
-	Velocity = FVector::ZeroVector;
+	Velocity = FVector3d(0, 0, 0);
 
 	PerecptionSphere->OnComponentBeginOverlap.AddDynamic(this,&ACPP_BoidActor::OnBeginOverlap);
 	PerecptionSphere->OnComponentEndOverlap.AddDynamic(this,&ACPP_BoidActor::OnEndOverlap);
+
+	SeparationDistance = 50.0f;
 
 }
 
@@ -30,7 +32,20 @@ void ACPP_BoidActor::BeginPlay()
 	Super::BeginPlay();
 	
 	Neighbours.Empty();
+
+	TSubclassOf<AActor> ClassFilter = ACPP_BoidActor::StaticClass();
+
+	TArray<AActor*> Actors;
 	
+	PerecptionSphere->GetOverlappingActors(Actors,ClassFilter);
+
+	for (AActor* Actor : Actors)
+	{
+		if (ACPP_BoidActor* boid = Cast<ACPP_BoidActor>(Actor))
+		{
+			Neighbours.Add(boid);
+		}
+	}
 }
 
 // Called every frame
@@ -42,9 +57,10 @@ void ACPP_BoidActor::Tick(float DeltaTime)
 
 void ACPP_BoidActor::UpdateBoid(const FVector& NewVelocity, float DeltaTime)
 {
-	Velocity = NewVelocity;
 
-	FVector NewLocation = GetActorLocation() + Velocity * DeltaTime;
+	Velocity = NewVelocity;
+	
+	FVector3d NewLocation = GetActorLocation() + Velocity * DeltaTime;
 	SetActorLocation(NewLocation);
 
 	if (!Velocity.IsNearlyZero())
@@ -54,21 +70,29 @@ void ACPP_BoidActor::UpdateBoid(const FVector& NewVelocity, float DeltaTime)
 	}
 }
 
-void ACPP_BoidActor::OnBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
-	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+TArray<ACPP_BoidActor*> ACPP_BoidActor::GetNeighbours()
 {
-	if (OverlappedComponent && OtherActor && OtherActor == Cast<ACPP_BoidActor>(OtherActor))
+	return Neighbours;
+}
+
+void ACPP_BoidActor::OnBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
+                                    UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	if (ACPP_BoidActor* OtherBoid = Cast<ACPP_BoidActor>(OtherActor))
 	{
-		Neighbours.Add(Cast<ACPP_BoidActor>(OtherActor));
+		if (OtherBoid != this)
+		{
+			Neighbours.AddUnique(OtherBoid);
+		}
 	}
 }
 
 void ACPP_BoidActor::OnEndOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
 	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
-	if (OverlappedComponent && OtherActor && OtherActor == Cast<ACPP_BoidActor>(OtherActor))
+	if (ACPP_BoidActor* OtherBoid = Cast<ACPP_BoidActor>(OtherActor))
 	{
-		Neighbours.Remove(Cast<ACPP_BoidActor>(OtherActor));
+		Neighbours.Remove(OtherBoid);
 	}
 }
 

@@ -20,10 +20,16 @@ public:
 	ACPP_BoidManager();
 
 	UPROPERTY(EditAnywhere)
+	TSubclassOf<ACPP_BoidActor> BoidActor;
+
+	UPROPERTY(EditAnywhere)
+	int32 NumberOfBoidsToSpawn;
+	
+	UPROPERTY(EditAnywhere)
 	bool bMoveBoids;
 
 	UPROPERTY(EditAnywhere)
-	float MoveSpeed;
+	float MoveSpeedFactor;
 
 	UPROPERTY(EditAnywhere)
 	float BoxWitdh;
@@ -58,6 +64,9 @@ private:
 
 	UPROPERTY(EditAnywhere)
 	float MaxSpeed;
+
+	UPROPERTY(EditAnywhere)
+	float InitialSpeed;
 	
 protected:
 	// Called when the game starts or when spawned
@@ -71,13 +80,13 @@ public:
 
 
 	//Planned method to spawn boids within a set box bound
-	void SpawnAndRegisterBoids();
+	void SpawnAndRegisterBoids( int32 SpawnNumber);
 	
-	void CalculateSeparation(TArray<ACPP_BoidActor*> Boids);
+	FVector3d CalculateSeparation(ACPP_BoidActor* Boid);
 
-	void CalculateAlignment(TArray<ACPP_BoidActor*> Boids);
+	FVector3d CalculateAlignment(ACPP_BoidActor* Boid);
 
-	void CalculateCohesion(TArray<ACPP_BoidActor*> Boids);
+	FVector3d CalculateCohesion(ACPP_BoidActor* Boid);
 
 	void UpdateBoids(TArray<ACPP_BoidActor*> Boids, float DeltaTime);
 
