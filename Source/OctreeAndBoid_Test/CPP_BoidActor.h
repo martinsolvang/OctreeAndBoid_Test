@@ -39,7 +39,7 @@ public:
 	//Called in BoidManager, updates position and rotation each tick
 	void UpdateBoid(const FVector& NewVelocity, float DeltaTime);
 
-	TArray<ACPP_BoidActor*> GetNeighbours();
+	/*TArray<ACPP_BoidActor*> GetNeighbours();
 
 	UFUNCTION()
 	void OnBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
@@ -51,7 +51,7 @@ public:
 	
 	//Clears and repopulates the neighbour list
 	UFUNCTION()
-	void CleanupNeighbours();
+	void CleanupNeighbours();*/
 
 protected:
 	// Called when the game starts or when spawned

@@ -48,6 +48,9 @@ private:
 	float SeparationFactor;
 
 	UPROPERTY(EditAnywhere)
+	float VisionRange;
+
+	UPROPERTY(EditAnywhere)
 	float AlignmentFactor;
 
 	UPROPERTY(EditAnywhere)
@@ -64,6 +67,9 @@ private:
 
 	UPROPERTY(EditAnywhere)
 	float MaxSpeed;
+
+	UPROPERTY(EditAnywhere)
+	float MinSpeed;
 
 	UPROPERTY(EditAnywhere)
 	float InitialSpeed;

@@ -19,8 +19,8 @@ ACPP_BoidActor::ACPP_BoidActor()
 
 	Velocity = FVector3d(0, 0, 0);
 
-	PerecptionSphere->OnComponentBeginOverlap.AddDynamic(this,&ACPP_BoidActor::OnBeginOverlap);
-	PerecptionSphere->OnComponentEndOverlap.AddDynamic(this,&ACPP_BoidActor::OnEndOverlap);
+	//PerecptionSphere->OnComponentBeginOverlap.AddDynamic(this,&ACPP_BoidActor::OnBeginOverlap);
+	//PerecptionSphere->OnComponentEndOverlap.AddDynamic(this,&ACPP_BoidActor::OnEndOverlap);
 
 	SeparationDistance = 50.0f;
 
@@ -37,15 +37,15 @@ void ACPP_BoidActor::BeginPlay()
 
 	TArray<AActor*> Actors;
 	
-	PerecptionSphere->GetOverlappingActors(Actors,ClassFilter);
+	//PerecptionSphere->GetOverlappingActors(Actors,ClassFilter);
 
-	for (AActor* Actor : Actors)
-	{
-		if (ACPP_BoidActor* boid = Cast<ACPP_BoidActor>(Actor))
-		{
-			Neighbours.Add(boid);
-		}
-	}
+	// for (AActor* Actor : Actors)
+	// {
+	// 	if (ACPP_BoidActor* boid = Cast<ACPP_BoidActor>(Actor))
+	// 	{
+	// 		Neighbours.Add(boid);
+	// 	}
+	// }
 }
 
 // Called every frame
@@ -70,6 +70,7 @@ void ACPP_BoidActor::UpdateBoid(const FVector& NewVelocity, float DeltaTime)
 	}
 }
 
+/*
 TArray<ACPP_BoidActor*> ACPP_BoidActor::GetNeighbours()
 {
 	return Neighbours;
@@ -95,9 +96,10 @@ void ACPP_BoidActor::OnEndOverlap(UPrimitiveComponent* OverlappedComponent, AAct
 		Neighbours.Remove(OtherBoid);
 	}
 }
+*/
 
 //Empties neighbour list and repopulates it
-void ACPP_BoidActor::CleanupNeighbours()
+/*void ACPP_BoidActor::CleanupNeighbours()
 {
 	Neighbours.Empty();
 	TArray<AActor*> OverlappingActors;
@@ -114,6 +116,6 @@ void ACPP_BoidActor::CleanupNeighbours()
 			Neighbours.Add(Cast<ACPP_BoidActor>(OverlappingActors[i]));
 		}
 	}
-}
+}*/
 
 

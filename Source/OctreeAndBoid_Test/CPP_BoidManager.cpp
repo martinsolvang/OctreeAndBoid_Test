@@ -22,9 +22,12 @@ ACPP_BoidManager::ACPP_BoidManager()
 	InitialSpeed = 100.0f;
 
 	MaxSpeed = 400.0f;
+	MinSpeed = 100.0f;
 	
 	MoveSpeedFactor = 1.0f;
 
+	VisionRange = 500.0f;
+	
 	BoxWitdh = 200.0f;
 	BoxDepth = 200.0f;
 	BoxHeight = 200.0f;
@@ -36,8 +39,8 @@ ACPP_BoidManager::ACPP_BoidManager()
 
 	BoundingBox->SetBoxExtent(FVector(BoxWitdh, BoxDepth, BoxHeight));
 
-	SeparationFactor = 1;
-	CohesionFactor = 0.05;
+	SeparationFactor = 15;
+	CohesionFactor = 1;
 	AlignmentFactor = 1;
 	
 }
@@ -76,18 +79,29 @@ void ACPP_BoidManager::SpawnAndRegisterBoids(int32 SpawnNumber)
 			
 		FVector SpawnPos = FVector(RandX,RandY,RandZ);
 
-		FRotator SpawnRotator = FRotator(UKismetMathLibrary::RandomFloatInRange(-20,20),
-				UKismetMathLibrary::RandomFloatInRange(-20,20),
-				 UKismetMathLibrary::RandomFloatInRange(0,360));
-		
-		ACPP_BoidActor* boid = GetWorld()->SpawnActor<ACPP_BoidActor>(BoidActor,SpawnPos,SpawnRotator);
-			
+		FRotator SpawnRotator = FRotator::ZeroRotator;
+        
+		ACPP_BoidActor* boid = GetWorld()->SpawnActor<ACPP_BoidActor>(BoidActor, SpawnPos, SpawnRotator);
+        
 		if (boid)
 		{
 			AllBoids.Add(boid);
+			// Set random velocity direction and magnitude
 			boid->Velocity = UKismetMathLibrary::RandomUnitVector() * InitialSpeed;
+            
+			// Set initial rotation to match velocity
+			if (!boid->Velocity.IsNearlyZero())
+			{
+				boid->SetActorRotation(boid->Velocity.Rotation());
+			}
+		}
+
+		for (ACPP_BoidActor* Bird : AllBoids)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Green, FString::Printf(TEXT("%s"), *Bird->GetName())); 
 		}
 	}
+	UE_LOG(LogTemp, Warning, TEXT("AllBoids count: %d"), AllBoids.Num());
 }
 
 // Called when the game starts or when spawned
@@ -99,17 +113,7 @@ void ACPP_BoidManager::BeginPlay()
 	
 
 	//Find all boids and add to array
-	//TArray<AActor*> actors;
-
-	// UGameplayStatics::GetAllActorsOfClass(GetWorld(),ACPP_BoidActor::StaticClass(),actors);
-	//
-	// for (auto actor : actors)
-	// {
-	// 	if (ACPP_BoidActor* boid = Cast<ACPP_BoidActor>(actor))
-	// 	{
-	// 		AllBoids.Add(boid);
-	// 	}
-	// }
+	TArray<AActor*> actors;
 	
 	
 }
@@ -124,95 +128,89 @@ void ACPP_BoidManager::Tick(float DeltaTime)
 	}
 }
 
-//Results a steering vector if the boid is too close to any other boid, within a certain radius
+
+//Returns a steering vector if the boid is too close to any other boid
 FVector3d ACPP_BoidManager::CalculateSeparation(ACPP_BoidActor* Boid)
 {
-	TArray<ACPP_BoidActor*> Neighbours = Boid->GetNeighbours();
-
-	FVector3d result = FVector3d(0.0f, 0.0f, 0.0f); 
-	
+	TArray<ACPP_BoidActor*> Neighbours = AllBoids;
+    
+	FVector3d result = FVector3d::ZeroVector;
+    
 	for (int i = 0; i < Neighbours.Num(); i++)
 	{
 		if (Neighbours[i] && Neighbours[i] != Boid)
 		{
-			FVector3d BoidPos = Boid->GetActorLocation();
-			FVector3d NeighbourPos = Neighbours[i]->GetActorLocation();
-			FVector3d DistVector = FVector3d(NeighbourPos - BoidPos);
-
-			if (DistVector.Length() < Boid->SeparationDistance)
+			FVector3d toBoid = Neighbours[i]->GetActorLocation() - Boid->GetActorLocation();
+			float distance = toBoid.Length();
+            
+			if (distance > 0 && distance < Boid->SeparationDistance)
 			{
-				result -= DistVector;
+				result += toBoid.GetSafeNormal() / distance;
 			}
 		}
 	}
-
+    
 	return result;
-	
 }
 
 //Returns a seering vector for the boid to align itself with nearby boids
 FVector3d ACPP_BoidManager::CalculateAlignment(ACPP_BoidActor* Boid)
 {
-	TArray<ACPP_BoidActor*> Neighbours = Boid->GetNeighbours();
-
-	FVector3d result = FVector3d(0.0f, 0.0f, 0.0f);
+	TArray<ACPP_BoidActor*> Neighbours = AllBoids;
 
 	if (Neighbours.Num() == 0) return FVector::ZeroVector;
 	
-	float Vx = 0;
-	float Vy = 0;
-	float Vz = 0;
+	FVector3d avgVelocity = FVector3d::ZeroVector;
+	int32 count = 0;
 	
 	for (int i = 0; i < Neighbours.Num(); i++)
 	{
 		if (Neighbours[i] && Neighbours[i] != Boid)
 		{
-			Vx += Neighbours[i]->GetActorForwardVector().X;
-			Vy += Neighbours[i]->GetActorForwardVector().Y;
-			Vz += Neighbours[i]->GetActorForwardVector().Z;
+			float distance = FVector3d::Distance(AllBoids[i]->GetActorLocation(), Boid->GetActorLocation());
+
+			if (distance <= VisionRange)
+			{
+				avgVelocity += Neighbours[i]->Velocity;
+				count++;
+			}
 		}
 	}
-
-	Vx = Vx / Neighbours.Num();
-	Vy = Vy / Neighbours.Num();
-	Vz = Vz / Neighbours.Num();
-
-	result = FVector3d(Vx, Vy, Vz);
+	if (count == 0) return FVector::ZeroVector;
+    
+	avgVelocity /= count;
 	
-	return result;
+	return avgVelocity - Boid->Velocity;
 }
 
 
 //Returns a vector towards a percieved center of mass for the nearby boids
 FVector3d ACPP_BoidManager::CalculateCohesion(ACPP_BoidActor* Boid)
 {
-	TArray<ACPP_BoidActor*> Neighbours = Boid->GetNeighbours();
+	TArray<ACPP_BoidActor*> Neighbours = AllBoids;
+	
+	if (Neighbours.Num() <= 1) return FVector::ZeroVector;
 
-	FVector3d result = FVector3d(0.0f, 0.0f, 0.0f); 
-
-	float Vx = 0;
-	float Vy = 0;
-	float Vz = 0;
-
-	if (Neighbours.Num() == 0) return FVector::ZeroVector;
+	FVector3d centerOfMass = FVector3d::ZeroVector;
+	int32 count = 0;
 	
 	for (int i = 0; i < Neighbours.Num(); i++)
 	{
 		if (Neighbours[i] && Neighbours[i] != Boid)
 		{
-			Vx += (Neighbours[i]->GetActorLocation().X - Boid->GetActorLocation().X);
-			Vy += (Neighbours[i]->GetActorLocation().Y - Boid->GetActorLocation().Y);
-			Vz += (Neighbours[i]->GetActorLocation().Z - Boid->GetActorLocation().Z);
+			float distance = FVector3d::Distance(AllBoids[i]->GetActorLocation(), Boid->GetActorLocation());
+			
+			if (distance <= VisionRange)
+			{
+				centerOfMass += Neighbours[i]->GetActorLocation();
+				count++;
+			}
 		}
-	}
-	
-	Vx = Vx / Neighbours.Num();
-	Vy = Vy / Neighbours.Num();
-	Vz = Vz / Neighbours.Num();
+	}	
 
-	result = FVector3d(Vx, Vy, Vz);
+	centerOfMass /= count;
 
-	return result;
+	return centerOfMass - Boid->GetActorLocation();
 }
 
 void ACPP_BoidManager::UpdateBoids(TArray<ACPP_BoidActor*> Boids, float DeltaTime)
@@ -221,18 +219,33 @@ void ACPP_BoidManager::UpdateBoids(TArray<ACPP_BoidActor*> Boids, float DeltaTim
 	{
 		if (boid)
 		{
-			FVector3d SteeringVector = FVector3d(0.0f, 0.0f, 0.0f);
-			FVector3d FinalVector = boid->Velocity;
-
-			SteeringVector += CalculateSeparation(boid)*SeparationFactor + CalculateAlignment(boid)*AlignmentFactor + CalculateCohesion(boid)*CohesionFactor;
-			
-			FinalVector += SteeringVector*MoveSpeedFactor;
-
-			FinalVector = FinalVector.GetClampedToMaxSize(MaxSpeed);
-			
+			// Calculate all forces
+			FVector3d separation = CalculateSeparation(boid) * SeparationFactor;
+			FVector3d alignment = CalculateAlignment(boid) * AlignmentFactor;
+			FVector3d cohesion = CalculateCohesion(boid) * CohesionFactor;
+            
+			FVector3d steeringForce = separation + alignment + cohesion;
+            
+			// Apply steering force smoothly
+			FVector3d newVelocity = boid->Velocity + steeringForce * DeltaTime;
+            
+			// Get current speed
+			float currentSpeed = newVelocity.Length();
+            
+			// Clamp speed between min and max
+			if (currentSpeed > MaxSpeed)
+			{
+				newVelocity = newVelocity.GetSafeNormal() * MaxSpeed;
+			}
+			else if (currentSpeed < MinSpeed && currentSpeed > 0)
+			{
+				newVelocity = newVelocity.GetSafeNormal() * MinSpeed;
+			}
+            
 			ContainBoids(boid);
-
-			boid->UpdateBoid(FinalVector,DeltaTime);
+            
+			// MoveSpeedFactor only affects display speed, not actual velocity
+			boid->UpdateBoid(newVelocity, DeltaTime * MoveSpeedFactor);
 		}
 	}
 }
