@@ -23,7 +23,7 @@ struct FBoid
 		: Position(FVector::ZeroVector)
 		, Velocity(FVector::ZeroVector)
 		, Acceleration(FVector::ZeroVector)
-		, MaxSpeed(400.f)
+		, MaxSpeed(500.f)
 		, MaxForce(50.f)
 	{}
 };
@@ -57,8 +57,21 @@ public:
 	UStaticMesh* BoidMesh;
 
 	TArray<FBoid> Boids;
+
+	UPROPERTY(EditAnywhere)
+	float AlignmentFactor;
+
+	UPROPERTY(EditAnywhere)
+	float CohesionFactor;
+
+	UPROPERTY(EditAnywhere)
+	float SeparationFactor;
 	
 	void InitializeBoids();
 	void UpdateBoids(float DeltaTime);
 	void ApplyFlockingForces(FBoid& Boid, int32 BoidIndex);
+	FVector Align(const TArray<FBoid>& Neighbours, const FBoid& Boid, int32 BoidIndex);
+	FVector Cohesion(const TArray<FBoid>& Neighbours, const FBoid& Boid, int32 BoidIndex);
+	FVector Separation(const TArray<FBoid>& Neighbours, const FBoid& Boid, int32 BoidIndex);
+	
 };
