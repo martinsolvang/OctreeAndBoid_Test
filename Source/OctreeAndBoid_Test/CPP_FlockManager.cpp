@@ -24,6 +24,10 @@ ACPP_FlockManager::ACPP_FlockManager()
 	AlignmentFactor = 2.0f;
 	CohesionFactor = 2.0f;
 	SeparationFactor = 1.0f;
+	ObstacleAvoidanceFactor = 10.0f;
+
+	bShowDebugAvoidance = false;
+
 }
 
 // Called when the game starts or when spawned
@@ -35,6 +39,8 @@ void ACPP_FlockManager::BeginPlay()
 	{
 		InstancedMesh->SetStaticMesh(BoidMesh);
 	}
+	
+	FCPP_BoidHelper::Init();
 
 	InitializeBoids();
 }
@@ -77,10 +83,17 @@ void ACPP_FlockManager::UpdateBoids(float DeltaTime)
 		Boid.MaxForce = BoidStruct.MaxForce;
 
 		ApplyFlockingForces(Boid, i);
+
+		if (IsHeadingForCollision(Boid))
+		{
+			FVector AvoidDir = SteerTowards(ObstacleRays(Boid),Boid) * ObstacleAvoidanceFactor ;
+			
+			Boid.Acceleration += AvoidDir;
+		}
 		
 		FVector DesiredAcceleration = Boid.Acceleration.GetClampedToMaxSize(Boid.MaxForce);
 		Boid.Acceleration = FMath::Lerp(Boid.Acceleration, DesiredAcceleration, 0.1f);
-
+		
 		Boid.Velocity += Boid.Acceleration * DeltaTime;
 		Boid.Velocity = Boid.Velocity.GetClampedToMaxSize(Boid.MaxSpeed);
 		Boid.Velocity = Boid.Velocity.GetClampedToSize(Boid.MinSpeed, Boid.MaxSpeed);
@@ -98,18 +111,106 @@ void ACPP_FlockManager::UpdateBoids(float DeltaTime)
 
 	InstancedMesh->MarkRenderStateDirty();
 	
-	DrawDebugSphere(GetWorld(), GetActorLocation(), BoundaryRadius, 32, FColor::Red, false, -1.f, 0, 2.f);
+	//DrawDebugSphere(GetWorld(), GetActorLocation(), BoundaryRadius, 32, FColor::Red, false, -1.f, 0, 2.f);
 }
 
 void ACPP_FlockManager::ApplyFlockingForces(FBoid& Boid, int32 BoidIndex)
 {
-	Boid.MaxForce = BoidStruct.MaxForce;
-	FVector RandomForce = FMath::VRand() * Boid.MaxForce*0.5;
-	Boid.Acceleration += Align(Boids, Boid, BoidIndex);
-	Boid.Acceleration += Cohesion(Boids, Boid, BoidIndex);
-	Boid.Acceleration += Separation(Boids, Boid, BoidIndex);
+	// Boid.MaxForce = BoidStruct.MaxForce;
+	// FVector RandomForce = FMath::VRand() * Boid.MaxForce*0.5;
+
+	FVector AlignVector = SteerTowards(Align(Boids, Boid, BoidIndex), Boid) * AlignmentFactor;
+	Boid.Acceleration += AlignVector;
+
+	FVector CohesionVector = SteerTowards(Cohesion(Boids, Boid, BoidIndex), Boid) * CohesionFactor;
+	Boid.Acceleration += CohesionVector;
+
+	FVector SeparationVector = SteerTowards(Separation(Boids, Boid, BoidIndex), Boid) * SeparationFactor;
+	Boid.Acceleration += SeparationVector;
+	
 	Boid.Acceleration += AvoidBoundary(Boid);
-	Boid.Acceleration += RandomForce;
+	//Boid.Acceleration += RandomForce;
+}
+
+bool ACPP_FlockManager::IsHeadingForCollision(FBoid& Boid)
+{
+	FHitResult Hit;
+	FVector Start = Boid.Position;
+	FVector End = Start + Boid.Velocity.GetSafeNormal() * CollisionAvoidDistance;
+
+	FCollisionQueryParams Params;
+	Params.bTraceComplex = false;
+	Params.AddIgnoredActor(this);
+
+	return GetWorld()->SweepSingleByChannel(
+		Hit,
+		Start,
+		End,
+		FQuat::Identity,
+		ObstacleChannel,
+		FCollisionShape::MakeSphere(BoundsRadius),
+		Params
+	);
+}
+
+FVector ACPP_FlockManager::SteerTowards(const FVector& DesiredDirection, FBoid& Boid)
+{
+	
+	FVector DesiredVelocity = DesiredDirection.GetSafeNormal() * Boid.MaxSpeed;
+	FVector Steering = DesiredVelocity - Boid.Velocity;
+	return Steering.GetClampedToMaxSize(Boid.MaxForce);
+}
+
+FVector ACPP_FlockManager::ObstacleRays(FBoid& Boid)
+{
+	TArray<FVector> RayDirections = FCPP_BoidHelper::Directions;
+
+	FRotator Rotation = Boid.Velocity.Rotation();
+	
+	for (int32 i = 0; i < RayDirections.Num(); i++)
+	{
+
+		FVector Dir = Rotation.RotateVector(RayDirections[i]);
+		Dir.Normalize();
+		
+		FVector Start = Boid.Position;
+		FVector End = Start + Dir * CollisionAvoidDistance;
+
+		FHitResult Hit;
+		FCollisionQueryParams Params;
+		Params.bTraceComplex = false;
+		Params.AddIgnoredActor(this);
+		
+		//Debug avoidance
+		if (bShowDebugAvoidance)
+		{
+			DrawDebugLine(
+			   GetWorld(),
+			   Start,
+			   End,
+			   FColor::Red,
+			   false,
+			   -1.0f,
+			   0,
+			   2.0f
+			);
+
+		}
+		
+		if (!GetWorld()->SweepSingleByChannel(
+			Hit,
+			Start,
+			End,
+			FQuat::Identity,
+			ObstacleChannel,
+			FCollisionShape::MakeSphere(BoundsRadius),
+			Params))
+		{
+			return Dir;
+		}
+	}
+	
+	return Boid.Velocity;
 }
 
 FVector ACPP_FlockManager::Align(const TArray<FBoid>& Neighbours, const FBoid& Boid, int32 BoidIndex)
@@ -118,7 +219,7 @@ FVector ACPP_FlockManager::Align(const TArray<FBoid>& Neighbours, const FBoid& B
 	{
 		return FVector::ZeroVector;
 	}
-	FVector Steering = FVector::ZeroVector;
+	FVector AvgVelocity = FVector::ZeroVector;
 	int32 Count = 0;
 	
 	for (int i = 0; i < Neighbours.Num(); i++)
@@ -129,20 +230,19 @@ FVector ACPP_FlockManager::Align(const TArray<FBoid>& Neighbours, const FBoid& B
 		float Distance = FVector::Dist(Neighbours[i].Position, Boid.Position);
 		if (Distance < 600.f) 
 		{
-			Steering += Neighbours[i].Velocity;
+			AvgVelocity += Neighbours[i].Velocity;
 			Count++;
 		}
 	}
 
 	if (Count > 0)
 	{
-		Steering /= (float)Count;                       
-		Steering = Steering.GetSafeNormal() * Boid.MaxSpeed; 
-		Steering -= Boid.Velocity;                      
-		Steering = Steering.GetClampedToMaxSize(Boid.MaxForce);
+		AvgVelocity /= Count;
+                     
+		return AvgVelocity;
 	}
 
-	return Steering * AlignmentFactor;
+	return FVector::ZeroVector;
 }
 
 FVector ACPP_FlockManager::Cohesion(const TArray<FBoid>& Neighbours, const FBoid& Boid, int32 BoidIndex)
@@ -164,10 +264,8 @@ FVector ACPP_FlockManager::Cohesion(const TArray<FBoid>& Neighbours, const FBoid
 
 	if (Count > 0)
 	{
-		CenterOfMass /= (float)Count;
-		FVector Desired = (CenterOfMass - Boid.Position).GetSafeNormal() * Boid.MaxSpeed;
-		FVector Steering = (Desired - Boid.Velocity).GetClampedToMaxSize(Boid.MaxForce);
-		return Steering * CohesionFactor;
+		CenterOfMass /= Count;
+		return  CenterOfMass - Boid.Position;
 	}
 
 	return FVector::ZeroVector;
@@ -195,21 +293,22 @@ FVector ACPP_FlockManager::Separation(const TArray<FBoid>& Neighbours, const FBo
 
 	if (Count > 0)
 	{
-		Steering /= (float)Count;
+		Steering /= Count;
 	}
 
 	if (!Steering.IsNearlyZero())
 	{
-		Steering = Steering.GetSafeNormal() * Boid.MaxSpeed;
-		Steering -= Boid.Velocity;
-		Steering = Steering.GetClampedToMaxSize(Boid.MaxForce);
+		return Steering;
 	}
 
-	return Steering * SeparationFactor;
+	return FVector::ZeroVector;
 }
 
-FVector ACPP_FlockManager::AvoidBoundary(const FBoid& Boid)
+
+//JUST FOR TESTING
+FVector ACPP_FlockManager::AvoidBoundary(FBoid& Boid)
 {
+
 	FVector CenterPoint = GetActorLocation(); 
 	FVector ToBoid = Boid.Position - CenterPoint;
 	float Distance = ToBoid.Size();
