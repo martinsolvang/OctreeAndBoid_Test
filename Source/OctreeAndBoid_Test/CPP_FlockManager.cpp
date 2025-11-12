@@ -4,6 +4,7 @@
 #include "CPP_FlockManager.h"
 #include "Engine/World.h"
 #include "DrawDebugHelpers.h"
+#include "MeshPaintVisualize.h"
 #include "Misc/TypeContainer.h"
 
 // Sets default values
@@ -28,6 +29,8 @@ ACPP_FlockManager::ACPP_FlockManager()
 
 	bShowDebugAvoidance = false;
 
+	SpatialHashGrid.bUseNeighborCells = false;
+
 }
 
 // Called when the game starts or when spawned
@@ -41,6 +44,8 @@ void ACPP_FlockManager::BeginPlay()
 	}
 	
 	FCPP_BoidHelper::Init();
+
+	SpatialHashGrid = FSpatialHashGrid(600, false);
 
 	InitializeBoids();
 }
@@ -74,15 +79,29 @@ void ACPP_FlockManager::InitializeBoids()
 
 void ACPP_FlockManager::UpdateBoids(float DeltaTime)
 {
+	SpatialHashGrid.ClearGrid();
+
 	for (int32 i = 0; i < Boids.Num(); i++)
 	{
+		SpatialHashGrid.InsertBoid(i,Boids[i].Position);
+	}
+
+	//Draws the active grid cells
+    SpatialHashGrid.DrawGrid(GetWorld(), FColor::Red, 0.0f);
+	
+	for (int32 i = 0; i < Boids.Num(); i++)
+	{
+		TArray<int32> NeighbourIndecies;
+
+		SpatialHashGrid.GetNeighbourBoids(Boids[i].Position, NeighbourIndecies);
+		
 		FBoid& Boid = Boids[i];
 
 		Boid.MaxSpeed = BoidStruct.MaxSpeed;
 		Boid.MinSpeed = BoidStruct.MinSpeed;
 		Boid.MaxForce = BoidStruct.MaxForce;
 
-		ApplyFlockingForces(Boid, i);
+		ApplyFlockingForces(Boid, i, NeighbourIndecies);
 
 		if (IsHeadingForCollision(Boid))
 		{
@@ -114,18 +133,25 @@ void ACPP_FlockManager::UpdateBoids(float DeltaTime)
 	//DrawDebugSphere(GetWorld(), GetActorLocation(), BoundaryRadius, 32, FColor::Red, false, -1.f, 0, 2.f);
 }
 
-void ACPP_FlockManager::ApplyFlockingForces(FBoid& Boid, int32 BoidIndex)
+void ACPP_FlockManager::ApplyFlockingForces(FBoid& Boid, int32 BoidIndex, TArray<int32>& NeighbourIndecies)
 {
 	// Boid.MaxForce = BoidStruct.MaxForce;
 	// FVector RandomForce = FMath::VRand() * Boid.MaxForce*0.5;
 
-	FVector AlignVector = SteerTowards(Align(Boids, Boid, BoidIndex), Boid) * AlignmentFactor;
+	//Populates the boid neighbour list with all the relevant boids from the neighbour indecies list
+	TArray<FBoid> Neighbours;
+	for (int32 i = 0; i < NeighbourIndecies.Num(); i++)
+	{
+		Neighbours.Add(Boids[NeighbourIndecies[i]]);
+	}
+
+	FVector AlignVector = SteerTowards(Align(Neighbours, Boid, BoidIndex), Boid) * AlignmentFactor;
 	Boid.Acceleration += AlignVector;
 
-	FVector CohesionVector = SteerTowards(Cohesion(Boids, Boid, BoidIndex), Boid) * CohesionFactor;
+	FVector CohesionVector = SteerTowards(Cohesion(Neighbours, Boid, BoidIndex), Boid) * CohesionFactor;
 	Boid.Acceleration += CohesionVector;
 
-	FVector SeparationVector = SteerTowards(Separation(Boids, Boid, BoidIndex), Boid) * SeparationFactor;
+	FVector SeparationVector = SteerTowards(Separation(Neighbours, Boid, BoidIndex), Boid) * SeparationFactor;
 	Boid.Acceleration += SeparationVector;
 	
 	Boid.Acceleration += AvoidBoundary(Boid);
@@ -228,7 +254,7 @@ FVector ACPP_FlockManager::Align(const TArray<FBoid>& Neighbours, const FBoid& B
 			continue;
 
 		float Distance = FVector::Dist(Neighbours[i].Position, Boid.Position);
-		if (Distance < 600.f) 
+		if (Distance < AlignThreshold) 
 		{
 			AvgVelocity += Neighbours[i].Velocity;
 			Count++;
@@ -255,7 +281,7 @@ FVector ACPP_FlockManager::Cohesion(const TArray<FBoid>& Neighbours, const FBoid
 		if (i == BoidIndex) continue;
 
 		float Distance = FVector::Dist(Neighbours[i].Position, Boid.Position);
-		if (Distance < 800.f)
+		if (Distance < CohesionThreshold)
 		{
 			CenterOfMass += Neighbours[i].Position;
 			Count++;
@@ -275,7 +301,7 @@ FVector ACPP_FlockManager::Separation(const TArray<FBoid>& Neighbours, const FBo
 {
 	FVector Steering = FVector::ZeroVector;
 	int32 Count = 0;
-	float DesiredSeparation = 300.f;
+	float DesiredSeparation = SeparationThreshold;
 
 	for (int32 i = 0; i < Neighbours.Num(); i++)
 	{

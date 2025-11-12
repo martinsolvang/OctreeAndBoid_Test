@@ -6,6 +6,7 @@
 #include "GameFramework/Actor.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "CPP_BoidHelper.h"
+#include "FSpatialHashGrid.h"
 #include "CPP_FlockManager.generated.h"
 
 USTRUCT(BlueprintType)
@@ -63,6 +64,8 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Flock Settings")
 	FBoid BoidStruct;
+
+	FSpatialHashGrid SpatialHashGrid;
 	
 	UPROPERTY(VisibleAnywhere)
 	UInstancedStaticMeshComponent* InstancedMesh;
@@ -78,6 +81,15 @@ public:
 
 	UPROPERTY(EditAnywhere, Category="Flock Settings")
 	bool bShowDebugAvoidance;
+
+	UPROPERTY(EditAnywhere, Category="Flock Settings")
+	float AlignThreshold = 600.f;
+
+	UPROPERTY(EditAnywhere, Category="Flock Settings")
+	float CohesionThreshold = 800.f;
+
+	UPROPERTY(EditAnywhere, Category="Flock Settings")
+	float SeparationThreshold = 300.f;
 	
 	UPROPERTY(EditAnywhere, Category="Flock Settings")
 	float AlignmentFactor;
@@ -111,7 +123,7 @@ public:
 	
 	void InitializeBoids();
 	void UpdateBoids(float DeltaTime);
-	void ApplyFlockingForces(FBoid& Boid, int32 BoidIndex);
+	void ApplyFlockingForces(FBoid& Boid, int32 BoidIndex, TArray<int32>& NeighbourIndecies);
 	bool IsHeadingForCollision(FBoid& Boid);
 	FVector SteerTowards(const FVector& DesiredDirection, FBoid& Boid);
 	FVector ObstacleRays(FBoid& Boid);
