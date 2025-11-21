@@ -28,8 +28,8 @@ ACPP_FlockManager::ACPP_FlockManager()
 	ObstacleAvoidanceFactor = 10.0f;
 
 	bShowDebugAvoidance = false;
+	PrimaryActorTick.bCanEverTick = false;
 
-	SpatialHashGrid.bUseNeighborCells = false;
 
 }
 
@@ -45,9 +45,23 @@ void ACPP_FlockManager::BeginPlay()
 	
 	FCPP_BoidHelper::Init();
 
-	SpatialHashGrid = FSpatialHashGrid(600, false);
+	SpatialHashGrid = FSpatialHashGrid(100, true);
 
 	InitializeBoids();
+
+	GetWorld()->GetTimerManager().SetTimer(
+		BoidUpdateTimerHandle,
+		this,
+		&ACPP_FlockManager::UpdateBoids,
+		BoidUpdateInterval,
+		true
+	);
+}
+
+void ACPP_FlockManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	GetWorldTimerManager().ClearTimer(BoidUpdateTimerHandle);
+	Super::EndPlay(EndPlayReason);
 }
 
 // Called every frame
@@ -55,7 +69,6 @@ void ACPP_FlockManager::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	
-	UpdateBoids(DeltaTime);
 }
 
 void ACPP_FlockManager::InitializeBoids()
@@ -77,8 +90,10 @@ void ACPP_FlockManager::InitializeBoids()
 	}
 }
 
-void ACPP_FlockManager::UpdateBoids(float DeltaTime)
+void ACPP_FlockManager::UpdateBoids()
 {
+	GEngine->AddOnScreenDebugMessage(-1, BoidUpdateInterval, FColor::Yellow, TEXT("BoidUPdated"));
+	//Clears and repopulates the spatial hash grid each frame
 	SpatialHashGrid.ClearGrid();
 
 	for (int32 i = 0; i < Boids.Num(); i++)
@@ -87,7 +102,11 @@ void ACPP_FlockManager::UpdateBoids(float DeltaTime)
 	}
 
 	//Draws the active grid cells
-    SpatialHashGrid.DrawGrid(GetWorld(), FColor::Red, 0.0f);
+	if (bDrawGrid)
+	{
+		SpatialHashGrid.DrawGrid(GetWorld(), FColor::Red, 0.0f);
+	}
+
 	
 	for (int32 i = 0; i < Boids.Num(); i++)
 	{
@@ -113,10 +132,11 @@ void ACPP_FlockManager::UpdateBoids(float DeltaTime)
 		FVector DesiredAcceleration = Boid.Acceleration.GetClampedToMaxSize(Boid.MaxForce);
 		Boid.Acceleration = FMath::Lerp(Boid.Acceleration, DesiredAcceleration, 0.1f);
 		
-		Boid.Velocity += Boid.Acceleration * DeltaTime;
+		Boid.Velocity += Boid.Acceleration * BoidUpdateInterval;
+;
 		Boid.Velocity = Boid.Velocity.GetClampedToMaxSize(Boid.MaxSpeed);
 		Boid.Velocity = Boid.Velocity.GetClampedToSize(Boid.MinSpeed, Boid.MaxSpeed);
-		Boid.Position += Boid.Velocity * DeltaTime;
+		Boid.Position += Boid.Velocity * BoidUpdateInterval;
 
 		Boid.Acceleration = FVector::ZeroVector;
 
@@ -187,6 +207,7 @@ FVector ACPP_FlockManager::SteerTowards(const FVector& DesiredDirection, FBoid& 
 	return Steering.GetClampedToMaxSize(Boid.MaxForce);
 }
 
+//Starts checking for available directions to steer towards
 FVector ACPP_FlockManager::ObstacleRays(FBoid& Boid)
 {
 	TArray<FVector> RayDirections = FCPP_BoidHelper::Directions;
@@ -210,27 +231,10 @@ FVector ACPP_FlockManager::ObstacleRays(FBoid& Boid)
 		//Debug avoidance
 		if (bShowDebugAvoidance)
 		{
-			DrawDebugLine(
-			   GetWorld(),
-			   Start,
-			   End,
-			   FColor::Red,
-			   false,
-			   -1.0f,
-			   0,
-			   2.0f
-			);
-
+			DrawDebugLine(GetWorld(),Start,End,FColor::Red,false,-1.0f,0,2.0f);
 		}
 		
-		if (!GetWorld()->SweepSingleByChannel(
-			Hit,
-			Start,
-			End,
-			FQuat::Identity,
-			ObstacleChannel,
-			FCollisionShape::MakeSphere(BoundsRadius),
-			Params))
+		if (!GetWorld()->SweepSingleByChannel(Hit,Start,End,FQuat::Identity,ObstacleChannel,FCollisionShape::MakeSphere(BoundsRadius),Params))
 		{
 			return Dir;
 		}

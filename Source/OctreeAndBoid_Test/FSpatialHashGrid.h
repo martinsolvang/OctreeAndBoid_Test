@@ -17,8 +17,7 @@ struct FSpatialHashGrid
 
 	private:
 
-	UPROPERTY(EditAnywhere, Category="Grid Settings")
-	float CellSize = 600.f;
+	
 
 	TMap<FIntVector, TArray<int32>> Cells;
 
@@ -26,7 +25,9 @@ struct FSpatialHashGrid
 
 
 public:
-
+	UPROPERTY(EditAnywhere, Category="Grid Settings")
+	float CellSize;
+	
 	bool bUseNeighborCells = true;
 
 	//Clears the grid of all boids 

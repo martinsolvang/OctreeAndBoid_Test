@@ -49,6 +49,8 @@ UCLASS()
 class OCTREEANDBOID_TEST_API ACPP_FlockManager : public AActor
 {
 	GENERATED_BODY()
+
+	FTimerHandle BoidUpdateTimerHandle;
 	
 public:
 	// Sets default values for this actor's properties
@@ -58,7 +60,13 @@ protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	
+
 public:
+	UPROPERTY(EditAnywhere, Category="Flock Settings")
+	float BoidUpdateInterval = 1/30;
+	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
@@ -81,6 +89,9 @@ public:
 
 	UPROPERTY(EditAnywhere, Category="Flock Settings")
 	bool bShowDebugAvoidance;
+
+	UPROPERTY(EditAnywhere, Category="Flock Settings")
+	bool bDrawGrid;
 
 	UPROPERTY(EditAnywhere, Category="Flock Settings")
 	float AlignThreshold = 600.f;
@@ -122,7 +133,7 @@ public:
 	TEnumAsByte<ECollisionChannel> ObstacleChannel = ECC_WorldStatic;
 	
 	void InitializeBoids();
-	void UpdateBoids(float DeltaTime);
+	void UpdateBoids();
 	void ApplyFlockingForces(FBoid& Boid, int32 BoidIndex, TArray<int32>& NeighbourIndecies);
 	bool IsHeadingForCollision(FBoid& Boid);
 	FVector SteerTowards(const FVector& DesiredDirection, FBoid& Boid);
