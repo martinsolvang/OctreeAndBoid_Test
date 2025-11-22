@@ -14,6 +14,17 @@ USTRUCT(BlueprintType)
 struct FBoid
 {
 	GENERATED_BODY()
+	UPROPERTY(VisibleAnywhere, Category="Flock Settings")
+	FVector PrevPosition;
+	 
+	UPROPERTY(VisibleAnywhere, Category="Flock Settings")
+	FVector TargetPosition;
+
+	UPROPERTY(VisibleAnywhere, Category="Flock Settings")
+	FQuat PrevRotation;
+	 
+	UPROPERTY(VisibleAnywhere, Category="Flock Settings")
+	FQuat TargetRotation;
 	
 	UPROPERTY(VisibleAnywhere, Category="Flock Settings")
 	FVector Position;
@@ -65,7 +76,7 @@ protected:
 
 public:
 	UPROPERTY(EditAnywhere, Category="Flock Settings")
-	float BoidUpdateInterval = 1/30;
+	float BoidUpdateInterval = 1.0f / 30.0f;
 	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
@@ -132,8 +143,14 @@ public:
 	UPROPERTY(EditAnywhere, Category="Flock Settings")
 	TEnumAsByte<ECollisionChannel> ObstacleChannel = ECC_WorldStatic;
 	
+	float InterpElapsed;
+	float InterpDuration; 
+
 	void InitializeBoids();
+
+	UFUNCTION()
 	void UpdateBoids();
+	
 	void ApplyFlockingForces(FBoid& Boid, int32 BoidIndex, TArray<int32>& NeighbourIndecies);
 	bool IsHeadingForCollision(FBoid& Boid);
 	FVector SteerTowards(const FVector& DesiredDirection, FBoid& Boid);

@@ -13,8 +13,6 @@ ACPP_FlockManager::ACPP_FlockManager()
 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 
-	PrimaryActorTick.bCanEverTick = true;
-
 	InstancedMesh = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("InstancedMesh"));
 	RootComponent = InstancedMesh;
 
@@ -28,9 +26,7 @@ ACPP_FlockManager::ACPP_FlockManager()
 	ObstacleAvoidanceFactor = 10.0f;
 
 	bShowDebugAvoidance = false;
-	PrimaryActorTick.bCanEverTick = false;
-
-
+	
 }
 
 // Called when the game starts or when spawned
@@ -45,7 +41,7 @@ void ACPP_FlockManager::BeginPlay()
 	
 	FCPP_BoidHelper::Init();
 
-	SpatialHashGrid = FSpatialHashGrid(100, true);
+	SpatialHashGrid = FSpatialHashGrid(300, true);
 
 	InitializeBoids();
 
@@ -56,6 +52,7 @@ void ACPP_FlockManager::BeginPlay()
 		BoidUpdateInterval,
 		true
 	);
+	UE_LOG(LogTemp, Warning, TEXT("BeginPlay called. BoidUpdateInterval = %f"), BoidUpdateInterval);
 }
 
 void ACPP_FlockManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -68,11 +65,34 @@ void ACPP_FlockManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void ACPP_FlockManager::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	InterpElapsed += DeltaTime;
+	float Alpha = FMath::Clamp(InterpElapsed / InterpDuration, 0.f, 1.f);
+	
+	//UE_LOG(LogTemp, Warning, TEXT("Interp Alpha = %f"), Alpha);
+
+	for(int32 i = 0; i < Boids.Num(); ++i)
+	{
+		const FBoid& Boid = Boids[i];
+		FVector InterpPos = FMath::Lerp(Boid.PrevPosition, Boid.TargetPosition, Alpha);
+		//FQuat InterpRot = FMath::Lerp(Boid.PrevRotation, Boid.TargetRotation, Alpha);
+	 
+		FTransform NewTransform;
+		NewTransform.SetLocation(InterpPos);
+		NewTransform.SetRotation(Boid.TargetRotation);
+	 
+		InstancedMesh->UpdateInstanceTransform(i, NewTransform, true, true);
+	}
+	 
+	InstancedMesh->MarkRenderStateDirty();
 	
 }
 
 void ACPP_FlockManager::InitializeBoids()
 {
+	InterpElapsed = 0.f;
+	InterpDuration = BoidUpdateInterval;
+	
 	Boids.SetNum(NumberOfBoids);
 
 	for (int32 i = 0; i < NumberOfBoids; i++)
@@ -87,12 +107,18 @@ void ACPP_FlockManager::InitializeBoids()
 		FTransform Transform;
 		Transform.SetLocation(SpawnLocation);
 		InstancedMesh->AddInstance(Transform);
+		
+		Boids[i].PrevPosition = Boids[i].Position;
+		Boids[i].TargetPosition = Boids[i].Position;
+
+		Boids[i].PrevRotation = FQuat(Boids[i].Velocity.Rotation());
+		Boids[i].TargetRotation = FQuat(Boids[i].Velocity.Rotation());
 	}
 }
 
 void ACPP_FlockManager::UpdateBoids()
 {
-	GEngine->AddOnScreenDebugMessage(-1, BoidUpdateInterval, FColor::Yellow, TEXT("BoidUPdated"));
+	//UE_LOG(LogTemp, Warning, TEXT("UpdateBoids triggered"));
 	//Clears and repopulates the spatial hash grid each frame
 	SpatialHashGrid.ClearGrid();
 
@@ -106,7 +132,6 @@ void ACPP_FlockManager::UpdateBoids()
 	{
 		SpatialHashGrid.DrawGrid(GetWorld(), FColor::Red, 0.0f);
 	}
-
 	
 	for (int32 i = 0; i < Boids.Num(); i++)
 	{
@@ -115,6 +140,9 @@ void ACPP_FlockManager::UpdateBoids()
 		SpatialHashGrid.GetNeighbourBoids(Boids[i].Position, NeighbourIndecies);
 		
 		FBoid& Boid = Boids[i];
+
+		Boid.PrevPosition = Boid.Position;
+		Boid.PrevRotation = FQuat(Boid.Velocity.Rotation());
 
 		Boid.MaxSpeed = BoidStruct.MaxSpeed;
 		Boid.MinSpeed = BoidStruct.MinSpeed;
@@ -132,25 +160,25 @@ void ACPP_FlockManager::UpdateBoids()
 		FVector DesiredAcceleration = Boid.Acceleration.GetClampedToMaxSize(Boid.MaxForce);
 		Boid.Acceleration = FMath::Lerp(Boid.Acceleration, DesiredAcceleration, 0.1f);
 		
-		Boid.Velocity += Boid.Acceleration * BoidUpdateInterval;
+		//Boid.Velocity += Boid.Acceleration * BoidUpdateInterval;
 ;
+		FVector NewVelocity = Boid.Velocity + Boid.Acceleration * BoidUpdateInterval;
+		Boid.Velocity = FMath::Lerp(Boid.Velocity, NewVelocity, 0.2f);
+		
 		Boid.Velocity = Boid.Velocity.GetClampedToMaxSize(Boid.MaxSpeed);
 		Boid.Velocity = Boid.Velocity.GetClampedToSize(Boid.MinSpeed, Boid.MaxSpeed);
 		Boid.Position += Boid.Velocity * BoidUpdateInterval;
 
 		Boid.Acceleration = FVector::ZeroVector;
 
-		FTransform NewTransform;
+		Boid.TargetPosition = Boid.Position;
 		
-		NewTransform.SetLocation(Boid.Position);
-        NewTransform.SetRotation(FQuat(Boid.Velocity.Rotation()));
-		InstancedMesh->UpdateInstanceTransform(i, NewTransform, true, true);
-		
+		FQuat DesiredRotation = FQuat(Boid.Velocity.Rotation());
+		Boid.TargetRotation = FQuat::Slerp(Boid.TargetRotation, DesiredRotation, 0.2f);
 	}
-
-	InstancedMesh->MarkRenderStateDirty();
-	
 	//DrawDebugSphere(GetWorld(), GetActorLocation(), BoundaryRadius, 32, FColor::Red, false, -1.f, 0, 2.f);
+	InterpElapsed = 0.f;
+	InterpDuration = BoidUpdateInterval;
 }
 
 void ACPP_FlockManager::ApplyFlockingForces(FBoid& Boid, int32 BoidIndex, TArray<int32>& NeighbourIndecies)
