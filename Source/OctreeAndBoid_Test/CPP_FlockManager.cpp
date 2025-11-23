@@ -5,6 +5,8 @@
 #include "Engine/World.h"
 #include "DrawDebugHelpers.h"
 #include "MeshPaintVisualize.h"
+#include "NaniteSceneProxy.h"
+#include "Chaos/PBDRigidClusteringAlgo.h"
 #include "Misc/TypeContainer.h"
 
 // Sets default values
@@ -65,7 +67,7 @@ void ACPP_FlockManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void ACPP_FlockManager::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-
+	
 	InterpElapsed += DeltaTime;
 	float Alpha = FMath::Clamp(InterpElapsed / InterpDuration, 0.f, 1.f);
 	
@@ -81,7 +83,7 @@ void ACPP_FlockManager::Tick(float DeltaTime)
 		NewTransform.SetLocation(InterpPos);
 		NewTransform.SetRotation(Boid.TargetRotation);
 	 
-		InstancedMesh->UpdateInstanceTransform(i, NewTransform, true, true);
+		InstancedMesh->UpdateInstanceTransform(i, NewTransform, true, false);
 	}
 	 
 	InstancedMesh->MarkRenderStateDirty();
@@ -187,23 +189,58 @@ void ACPP_FlockManager::ApplyFlockingForces(FBoid& Boid, int32 BoidIndex, TArray
 	// FVector RandomForce = FMath::VRand() * Boid.MaxForce*0.5;
 
 	//Populates the boid neighbour list with all the relevant boids from the neighbour indecies list
-	TArray<FBoid> Neighbours;
-	for (int32 i = 0; i < NeighbourIndecies.Num(); i++)
-	{
-		Neighbours.Add(Boids[NeighbourIndecies[i]]);
-	}
-
-	FVector AlignVector = SteerTowards(Align(Neighbours, Boid, BoidIndex), Boid) * AlignmentFactor;
-	Boid.Acceleration += AlignVector;
-
-	FVector CohesionVector = SteerTowards(Cohesion(Neighbours, Boid, BoidIndex), Boid) * CohesionFactor;
-	Boid.Acceleration += CohesionVector;
-
-	FVector SeparationVector = SteerTowards(Separation(Neighbours, Boid, BoidIndex), Boid) * SeparationFactor;
-	Boid.Acceleration += SeparationVector;
+	// TArray<FBoid> Neighbours;
+	// for (int32 i = 0; i < NeighbourIndecies.Num(); i++)
+	// {
+	// 	Neighbours.Add(Boids[NeighbourIndecies[i]]);
+	// }
 	
-	Boid.Acceleration += AvoidBoundary(Boid);
+	// FVector AlignVector = SteerTowards(Align(Neighbours, Boid, BoidIndex), Boid) * AlignmentFactor;
+	// Boid.Acceleration += AlignVector;
+	//
+	// FVector CohesionVector = SteerTowards(Cohesion(Neighbours, Boid, BoidIndex), Boid) * CohesionFactor;
+	// Boid.Acceleration += CohesionVector;
+	//
+	// FVector SeparationVector = SteerTowards(Separation(Neighbours, Boid, BoidIndex), Boid) * SeparationFactor;
+	// Boid.Acceleration += SeparationVector;
+	
+	//Boid.Acceleration += AvoidBoundary(Boid);
 	//Boid.Acceleration += RandomForce;
+	
+	FVector AlignSum = FVector::ZeroVector;
+	FVector CohesionSum = FVector::ZeroVector;
+	FVector SeparationSum = FVector::ZeroVector;
+	int32 AlignCount = 0, CohesionCount = 0, SeparationCount = 0;
+
+	for (int32 NeighbourIndex : NeighbourIndecies)
+	{
+		if (NeighbourIndex == BoidIndex) continue;
+
+		const FBoid& NeighborBoid = Boids[NeighbourIndex];
+		float DistSq = FVector::DistSquared(NeighborBoid.Position, Boid.Position);
+
+		if (DistSq < AlignThreshold * AlignThreshold)
+		{
+			AlignSum += NeighborBoid.Velocity;
+			AlignCount++;
+		}
+		if (DistSq < CohesionThreshold * CohesionThreshold)
+		{
+			CohesionSum += NeighborBoid.Position;
+			CohesionCount++;
+		}
+		if (DistSq < SeparationThreshold * SeparationThreshold && DistSq > 0)
+		{
+			SeparationSum += (Boid.Position - NeighborBoid.Position) / FMath::Sqrt(DistSq);
+			SeparationCount++;
+		}
+	}
+	if (AlignCount > 0)
+		Boid.Acceleration += SteerTowards(AlignSum / AlignCount, Boid) * AlignmentFactor;
+	if (CohesionCount > 0)
+		Boid.Acceleration += SteerTowards((CohesionSum / CohesionCount) - Boid.Position, Boid) * CohesionFactor;
+	if (SeparationCount > 0)
+		Boid.Acceleration += SteerTowards(SeparationSum / SeparationCount, Boid) * SeparationFactor;
 }
 
 bool ACPP_FlockManager::IsHeadingForCollision(FBoid& Boid)
@@ -271,7 +308,7 @@ FVector ACPP_FlockManager::ObstacleRays(FBoid& Boid)
 	return Boid.Velocity;
 }
 
-FVector ACPP_FlockManager::Align(const TArray<FBoid>& Neighbours, const FBoid& Boid, int32 BoidIndex)
+/*FVector ACPP_FlockManager::Align(const TArray<FBoid>& Neighbours, const FBoid& Boid, int32 BoidIndex)
 {
 	if (Neighbours.Num() < 0)
 	{
@@ -360,7 +397,7 @@ FVector ACPP_FlockManager::Separation(const TArray<FBoid>& Neighbours, const FBo
 	}
 
 	return FVector::ZeroVector;
-}
+}*/
 
 
 //JUST FOR TESTING
