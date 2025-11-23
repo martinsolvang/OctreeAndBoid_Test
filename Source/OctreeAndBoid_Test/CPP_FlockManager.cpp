@@ -4,31 +4,36 @@
 #include "CPP_FlockManager.h"
 #include "Engine/World.h"
 #include "DrawDebugHelpers.h"
-#include "MeshPaintVisualize.h"
-#include "NaniteSceneProxy.h"
-#include "Chaos/PBDRigidClusteringAlgo.h"
-#include "Misc/TypeContainer.h"
+// #include "MeshPaintVisualize.h"
+// #include "NaniteSceneProxy.h"
+// #include "Chaos/PBDRigidClusteringAlgo.h"
+// #include "Misc/TypeContainer.h"
+#include "Components/InstancedStaticMeshComponent.h"
+#include "CPP_BoidHelper.h"
+
+#include "Async/ParallelFor.h"
 
 // Sets default values
-ACPP_FlockManager::ACPP_FlockManager()
+ACPP_FlockManager::ACPP_FlockManager() : SpatialHashGrid(300, false)
 {
 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 
 	InstancedMesh = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("InstancedMesh"));
 	RootComponent = InstancedMesh;
-
+	
 	InstancedMesh->bUseAsOccluder = false;
-	InstancedMesh->InstanceStartCullDistance = 100.f;
-	InstancedMesh->InstanceEndCullDistance = 10000.f;
+	InstancedMesh->CastShadow = false;
+	InstancedMesh->bDisableCollision = true;
+	InstancedMesh->InstanceStartCullDistance = 1000.f;
+	InstancedMesh->InstanceEndCullDistance = 20000.f;
 
 	AlignmentFactor = 2.0f;
 	CohesionFactor = 2.0f;
 	SeparationFactor = 1.0f;
 	ObstacleAvoidanceFactor = 10.0f;
-
-	bShowDebugAvoidance = false;
 	
+	bShowDebugAvoidance = false;
 }
 
 // Called when the game starts or when spawned
@@ -42,8 +47,8 @@ void ACPP_FlockManager::BeginPlay()
 	}
 	
 	FCPP_BoidHelper::Init();
-
-	SpatialHashGrid = FSpatialHashGrid(300, true);
+	
+	SpatialHashGrid.ClearGrid();
 
 	InitializeBoids();
 
@@ -54,6 +59,8 @@ void ACPP_FlockManager::BeginPlay()
 		BoidUpdateInterval,
 		true
 	);
+
+	
 	UE_LOG(LogTemp, Warning, TEXT("BeginPlay called. BoidUpdateInterval = %f"), BoidUpdateInterval);
 }
 
@@ -115,6 +122,8 @@ void ACPP_FlockManager::InitializeBoids()
 
 		Boids[i].PrevRotation = FQuat(Boids[i].Velocity.Rotation());
 		Boids[i].TargetRotation = FQuat(Boids[i].Velocity.Rotation());
+
+		SpatialHashGrid.InsertBoid(i,Boids[i].Position);
 	}
 }
 
@@ -122,26 +131,42 @@ void ACPP_FlockManager::UpdateBoids()
 {
 	//UE_LOG(LogTemp, Warning, TEXT("UpdateBoids triggered"));
 	//Clears and repopulates the spatial hash grid each frame
-	SpatialHashGrid.ClearGrid();
 
-	for (int32 i = 0; i < Boids.Num(); i++)
+	//for (int32 i = 0; i < Boids.Num(); i++)
+	
+	ParallelFor(Boids.Num(), [this](int32 i)
 	{
-		SpatialHashGrid.InsertBoid(i,Boids[i].Position);
-	}
+		FBoid& Boid = Boids[i];
+		
+		if (SpatialHashGrid.HasChangedCell(Boid.OldCellLocation, Boid.Position))
+		{
+			CellMutex.Lock();
+			SpatialHashGrid.RemoveBoid(i, Boid.OldCellLocation);
+			SpatialHashGrid.InsertBoid(i,Boid.Position);
+			CellMutex.Unlock();
+		}
+		
+		Boid.OldCellLocation = Boid.Position;
+	});
 
 	//Draws the active grid cells
 	if (bDrawGrid)
 	{
 		SpatialHashGrid.DrawGrid(GetWorld(), FColor::Red, 0.0f);
 	}
-	
-	for (int32 i = 0; i < Boids.Num(); i++)
-	{
-		TArray<int32> NeighbourIndecies;
 
+	BoidsBuffer.SetNumUninitialized(Boids.Num());
+	//for (int32 i = 0; i < Boids.Num(); i++)
+	
+	ParallelFor(Boids.Num(), [this](int32 i)
+	{
+		
+		TArray<int32> NeighbourIndecies;
 		SpatialHashGrid.GetNeighbourBoids(Boids[i].Position, NeighbourIndecies);
 		
-		FBoid& Boid = Boids[i];
+		TArrayView<const FBoid> BoidsView(Boids);
+
+		FBoid Boid = BoidsView[i];
 
 		Boid.PrevPosition = Boid.Position;
 		Boid.PrevRotation = FQuat(Boid.Velocity.Rotation());
@@ -150,7 +175,7 @@ void ACPP_FlockManager::UpdateBoids()
 		Boid.MinSpeed = BoidStruct.MinSpeed;
 		Boid.MaxForce = BoidStruct.MaxForce;
 
-		ApplyFlockingForces(Boid, i, NeighbourIndecies);
+		ApplyFlockingForces(Boid, i, NeighbourIndecies, BoidsView);
 
 		if (IsHeadingForCollision(Boid))
 		{
@@ -163,7 +188,7 @@ void ACPP_FlockManager::UpdateBoids()
 		Boid.Acceleration = FMath::Lerp(Boid.Acceleration, DesiredAcceleration, 0.1f);
 		
 		//Boid.Velocity += Boid.Acceleration * BoidUpdateInterval;
-;
+
 		FVector NewVelocity = Boid.Velocity + Boid.Acceleration * BoidUpdateInterval;
 		Boid.Velocity = FMath::Lerp(Boid.Velocity, NewVelocity, 0.2f);
 		
@@ -174,38 +199,20 @@ void ACPP_FlockManager::UpdateBoids()
 		Boid.Acceleration = FVector::ZeroVector;
 
 		Boid.TargetPosition = Boid.Position;
-		
 		FQuat DesiredRotation = FQuat(Boid.Velocity.Rotation());
 		Boid.TargetRotation = FQuat::Slerp(Boid.TargetRotation, DesiredRotation, 0.2f);
-	}
+
+		BoidsBuffer[i] = Boid;
+	});
+
+	Boids = BoidsBuffer;
 	//DrawDebugSphere(GetWorld(), GetActorLocation(), BoundaryRadius, 32, FColor::Red, false, -1.f, 0, 2.f);
 	InterpElapsed = 0.f;
 	InterpDuration = BoidUpdateInterval;
 }
 
-void ACPP_FlockManager::ApplyFlockingForces(FBoid& Boid, int32 BoidIndex, TArray<int32>& NeighbourIndecies)
+void ACPP_FlockManager::ApplyFlockingForces(FBoid& Boid, int32 BoidIndex, const TArray<int32>& NeighbourIndecies, const TArrayView<const FBoid> BoidsView) const
 {
-	// Boid.MaxForce = BoidStruct.MaxForce;
-	// FVector RandomForce = FMath::VRand() * Boid.MaxForce*0.5;
-
-	//Populates the boid neighbour list with all the relevant boids from the neighbour indecies list
-	// TArray<FBoid> Neighbours;
-	// for (int32 i = 0; i < NeighbourIndecies.Num(); i++)
-	// {
-	// 	Neighbours.Add(Boids[NeighbourIndecies[i]]);
-	// }
-	
-	// FVector AlignVector = SteerTowards(Align(Neighbours, Boid, BoidIndex), Boid) * AlignmentFactor;
-	// Boid.Acceleration += AlignVector;
-	//
-	// FVector CohesionVector = SteerTowards(Cohesion(Neighbours, Boid, BoidIndex), Boid) * CohesionFactor;
-	// Boid.Acceleration += CohesionVector;
-	//
-	// FVector SeparationVector = SteerTowards(Separation(Neighbours, Boid, BoidIndex), Boid) * SeparationFactor;
-	// Boid.Acceleration += SeparationVector;
-	
-	//Boid.Acceleration += AvoidBoundary(Boid);
-	//Boid.Acceleration += RandomForce;
 	
 	FVector AlignSum = FVector::ZeroVector;
 	FVector CohesionSum = FVector::ZeroVector;
@@ -216,20 +223,20 @@ void ACPP_FlockManager::ApplyFlockingForces(FBoid& Boid, int32 BoidIndex, TArray
 	{
 		if (NeighbourIndex == BoidIndex) continue;
 
-		const FBoid& NeighborBoid = Boids[NeighbourIndex];
+		const FBoid& NeighborBoid = BoidsView[NeighbourIndex];
 		float DistSq = FVector::DistSquared(NeighborBoid.Position, Boid.Position);
 
-		if (DistSq < AlignThreshold * AlignThreshold)
+		if (DistSq < FMath::Square(AlignThreshold))
 		{
 			AlignSum += NeighborBoid.Velocity;
 			AlignCount++;
 		}
-		if (DistSq < CohesionThreshold * CohesionThreshold)
+		if (DistSq < FMath::Square(CohesionThreshold))
 		{
 			CohesionSum += NeighborBoid.Position;
 			CohesionCount++;
 		}
-		if (DistSq < SeparationThreshold * SeparationThreshold && DistSq > 0)
+		if (DistSq < FMath::Square(SeparationThreshold) && DistSq > 0)
 		{
 			SeparationSum += (Boid.Position - NeighborBoid.Position) / FMath::Sqrt(DistSq);
 			SeparationCount++;
@@ -241,9 +248,12 @@ void ACPP_FlockManager::ApplyFlockingForces(FBoid& Boid, int32 BoidIndex, TArray
 		Boid.Acceleration += SteerTowards((CohesionSum / CohesionCount) - Boid.Position, Boid) * CohesionFactor;
 	if (SeparationCount > 0)
 		Boid.Acceleration += SteerTowards(SeparationSum / SeparationCount, Boid) * SeparationFactor;
+
+	//Boid.Acceleration += AvoidBoundary(Boid);
+	//Boid.Acceleration += RandomForce;
 }
 
-bool ACPP_FlockManager::IsHeadingForCollision(FBoid& Boid)
+bool ACPP_FlockManager::IsHeadingForCollision(const FBoid& Boid) const
 {
 	FHitResult Hit;
 	FVector Start = Boid.Position;
@@ -264,7 +274,7 @@ bool ACPP_FlockManager::IsHeadingForCollision(FBoid& Boid)
 	);
 }
 
-FVector ACPP_FlockManager::SteerTowards(const FVector& DesiredDirection, FBoid& Boid)
+FVector ACPP_FlockManager::SteerTowards(const FVector& DesiredDirection, const FBoid& Boid)
 {
 	
 	FVector DesiredVelocity = DesiredDirection.GetSafeNormal() * Boid.MaxSpeed;
@@ -273,7 +283,7 @@ FVector ACPP_FlockManager::SteerTowards(const FVector& DesiredDirection, FBoid& 
 }
 
 //Starts checking for available directions to steer towards
-FVector ACPP_FlockManager::ObstacleRays(FBoid& Boid)
+FVector ACPP_FlockManager::ObstacleRays(const FBoid& Boid) const
 {
 	TArray<FVector> RayDirections = FCPP_BoidHelper::Directions;
 

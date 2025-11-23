@@ -16,11 +16,9 @@ struct FSpatialHashGrid
 	FSpatialHashGrid() = default;
 
 	private:
-
 	
-
 	TMap<FIntVector, TArray<int32>> Cells;
-
+	
 	FIntVector GetCellVector(const FVector& Position) const;
 
 
@@ -33,8 +31,12 @@ public:
 	//Clears the grid of all boids 
 	void ClearGrid();
 
-	
 	void InsertBoid(int32 BoidIndex, const FVector& Position);
+	
+	void RemoveBoid(int32 BoidIndex, const FVector& Position);
+
+	bool HasChangedCell(const FVector& OldPosition, const FVector&NewPosition) const;
+	
 	void GetNeighbourBoids(const FVector& Position, TArray<int32>& OutIndices) const;
 
 	void DrawGrid(UWorld* World, const FColor& Color = FColor::Green, float Duration = 0.0f) const;

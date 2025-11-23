@@ -4,10 +4,11 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "Components/InstancedStaticMeshComponent.h"
-#include "CPP_BoidHelper.h"
 #include "FSpatialHashGrid.h"
 #include "CPP_FlockManager.generated.h"
+
+class UInstancedStaticMeshComponent;
+class CPP_BoidHelper;
 
 USTRUCT(BlueprintType)
 
@@ -43,16 +44,22 @@ struct FBoid
 
 	UPROPERTY(EditAnywhere, Category="Flock Settings")
 	float MaxForce;
-	
-	
+
+	UPROPERTY()
+	FVector OldCellLocation;
 	
 	FBoid()
-		: Position(FVector::ZeroVector)
+		: PrevPosition(FVector::ZeroVector)
+		, TargetPosition(FVector::ZeroVector)
+		, PrevRotation(FQuat::Identity)
+		, TargetRotation(FQuat::Identity)
+		, Position(FVector::ZeroVector)
 		, Velocity(FVector::ZeroVector)
 		, Acceleration(FVector::ZeroVector)
 		, MaxSpeed(500.f)
 		, MinSpeed(300.0f)
 		, MaxForce(300.f)
+		, OldCellLocation(FVector::ZeroVector)
 	{}
 };
 
@@ -66,7 +73,7 @@ class OCTREEANDBOID_TEST_API ACPP_FlockManager : public AActor
 public:
 	// Sets default values for this actor's properties
 	ACPP_FlockManager();
-
+	
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -97,6 +104,8 @@ public:
 	UStaticMesh* BoidMesh;
 
 	TArray<FBoid> Boids;
+
+	TArray<FBoid> BoidsBuffer;
 
 	UPROPERTY(EditAnywhere, Category="Flock Settings")
 	bool bShowDebugAvoidance;
@@ -144,20 +153,22 @@ public:
 	TEnumAsByte<ECollisionChannel> ObstacleChannel = ECC_WorldStatic;
 	
 	float InterpElapsed;
-	float InterpDuration; 
+	float InterpDuration;
+
+	FCriticalSection CellMutex;
 
 	void InitializeBoids();
 
 	UFUNCTION()
 	void UpdateBoids();
 	
-	void ApplyFlockingForces(FBoid& Boid, int32 BoidIndex, TArray<int32>& NeighbourIndecies);
-	bool IsHeadingForCollision(FBoid& Boid);
-	FVector SteerTowards(const FVector& DesiredDirection, FBoid& Boid);
-	FVector ObstacleRays(FBoid& Boid);
-	FVector Align(const TArray<FBoid>& Neighbours, const FBoid& Boid, int32 BoidIndex);
-	FVector Cohesion(const TArray<FBoid>& Neighbours, const FBoid& Boid, int32 BoidIndex);
-	FVector Separation(const TArray<FBoid>& Neighbours, const FBoid& Boid, int32 BoidIndex);
+	void ApplyFlockingForces(FBoid& Boid, int32 BoidIndex, const TArray<int32>& NeighbourIndecies, TArrayView<const FBoid> BoidsView ) const;
+	bool IsHeadingForCollision(const FBoid& Boid) const;
+	static FVector SteerTowards(const FVector& DesiredDirection, const FBoid& Boid);
+	FVector ObstacleRays(const FBoid& Boid) const;
+	//FVector Align(const TArray<FBoid>& Neighbours, const FBoid& Boid, int32 BoidIndex);
+	//FVector Cohesion(const TArray<FBoid>& Neighbours, const FBoid& Boid, int32 BoidIndex);
+	//FVector Separation(const TArray<FBoid>& Neighbours, const FBoid& Boid, int32 BoidIndex);
 	FVector AvoidBoundary(FBoid& Boid);
 	
 };

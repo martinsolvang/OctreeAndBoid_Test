@@ -21,21 +21,45 @@ FSpatialHashGrid::FSpatialHashGrid(float CellSize, bool bUseNeighborCells)
 void FSpatialHashGrid::ClearGrid()
 {
 	Cells.Empty();
+	
 }
+
+
 
 void FSpatialHashGrid::InsertBoid(int32 BoidIndex, const FVector& Position)
 {
 	FIntVector Cell = GetCellVector(Position);
+
 	Cells.FindOrAdd(Cell).Add(BoidIndex);
 	
+}
+
+void FSpatialHashGrid::RemoveBoid(int32 BoidIndex, const FVector& Position)
+{
+	FIntVector Cell = GetCellVector(Position);
+
+	if (TArray<int32>* CellBoids = Cells.Find(Cell))
+	{
+		CellBoids->Remove(BoidIndex);
+		
+	}
+}
+
+bool FSpatialHashGrid::HasChangedCell(const FVector& OldPosition, const FVector& NewPosition) const
+{
+	if (GetCellVector(OldPosition) != GetCellVector(NewPosition))
+	{
+		return true;
+	}
+	return false;
 }
 
 void FSpatialHashGrid::GetNeighbourBoids(const FVector& Position, TArray<int32>& OutIndices) const
 {
 
 	OutIndices.Empty();
-	
-	FIntVector CenterCell = GetCellVector(Position);
+
+	const FIntVector CenterCell = GetCellVector(Position);
 
 	if (bUseNeighborCells)
 	{
