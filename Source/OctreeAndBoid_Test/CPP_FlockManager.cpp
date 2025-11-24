@@ -8,8 +8,10 @@
 // #include "NaniteSceneProxy.h"
 // #include "Chaos/PBDRigidClusteringAlgo.h"
 // #include "Misc/TypeContainer.h"
+#include "HAL/PlatformTime.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "CPP_BoidHelper.h"
+#include "SWarningOrErrorBox.h"
 
 #include "Async/ParallelFor.h"
 
@@ -18,6 +20,7 @@ ACPP_FlockManager::ACPP_FlockManager() : SpatialHashGrid(300, false)
 {
 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.TickInterval = BoidUpdateInterval;
 
 	InstancedMesh = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("InstancedMesh"));
 	RootComponent = InstancedMesh;
@@ -27,13 +30,16 @@ ACPP_FlockManager::ACPP_FlockManager() : SpatialHashGrid(300, false)
 	InstancedMesh->bDisableCollision = true;
 	InstancedMesh->InstanceStartCullDistance = 1000.f;
 	InstancedMesh->InstanceEndCullDistance = 20000.f;
-
+	
 	AlignmentFactor = 2.0f;
 	CohesionFactor = 2.0f;
 	SeparationFactor = 1.0f;
 	ObstacleAvoidanceFactor = 10.0f;
 	
 	bShowDebugAvoidance = false;
+
+	BoidUpdateInterval = 0.1f;
+	BoidUpdateAccumulator = 0.0f;
 }
 
 // Called when the game starts or when spawned
@@ -48,17 +54,15 @@ void ACPP_FlockManager::BeginPlay()
 	
 	FCPP_BoidHelper::Init();
 	
-	SpatialHashGrid.ClearGrid();
-
 	InitializeBoids();
 
-	GetWorld()->GetTimerManager().SetTimer(
+	/*GetWorld()->GetTimerManager().SetTimer(
 		BoidUpdateTimerHandle,
 		this,
 		&ACPP_FlockManager::UpdateBoids,
 		BoidUpdateInterval,
 		true
-	);
+	);*/
 
 	
 	UE_LOG(LogTemp, Warning, TEXT("BeginPlay called. BoidUpdateInterval = %f"), BoidUpdateInterval);
@@ -66,7 +70,8 @@ void ACPP_FlockManager::BeginPlay()
 
 void ACPP_FlockManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	GetWorldTimerManager().ClearTimer(BoidUpdateTimerHandle);
+	//GetWorldTimerManager().ClearTimer(BoidUpdateTimerHandle);
+	SpatialHashGrid.ClearGrid();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -74,13 +79,26 @@ void ACPP_FlockManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void ACPP_FlockManager::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	UE_LOG(LogTemp, Warning, TEXT("DeltaTime: %f"), DeltaTime);
+
+	BoidUpdateAccumulator += DeltaTime;
 	
-	InterpElapsed += DeltaTime;
-	float Alpha = FMath::Clamp(InterpElapsed / InterpDuration, 0.f, 1.f);
+	while (BoidUpdateAccumulator >= BoidUpdateInterval)
+	{
+		UpdateBoids(BoidUpdateInterval);
+		BoidUpdateAccumulator -= BoidUpdateInterval;
+	}
+	//InterpElapsed += DeltaTime;
+	//float Alpha = FMath::Clamp(InterpElapsed / InterpDuration, 0.f, 1.f);
+
+	float Alpha = BoidUpdateAccumulator / BoidUpdateInterval;
 	
 	//UE_LOG(LogTemp, Warning, TEXT("Interp Alpha = %f"), Alpha);
 
-	for(int32 i = 0; i < Boids.Num(); ++i)
+	//for(int32 i = 0; i < Boids.Num(); ++i)
+	TArray<FTransform> NewTransforms;
+	NewTransforms.SetNum(Boids.Num());
+	ParallelFor(Boids.Num(), [this, Alpha,&NewTransforms](int32 i)	
 	{
 		const FBoid& Boid = Boids[i];
 		FVector InterpPos = FMath::Lerp(Boid.PrevPosition, Boid.TargetPosition, Alpha);
@@ -89,10 +107,15 @@ void ACPP_FlockManager::Tick(float DeltaTime)
 		FTransform NewTransform;
 		NewTransform.SetLocation(InterpPos);
 		NewTransform.SetRotation(Boid.TargetRotation);
+
+		NewTransforms[i] = NewTransform;
 	 
-		InstancedMesh->UpdateInstanceTransform(i, NewTransform, true, false);
+	});
+	for (int32 i = 0; i < NewTransforms.Num(); ++i)
+	{
+		InstancedMesh->UpdateInstanceTransform(i, NewTransforms[i], true, false);
 	}
-	 
+
 	InstancedMesh->MarkRenderStateDirty();
 	
 }
@@ -123,31 +146,26 @@ void ACPP_FlockManager::InitializeBoids()
 		Boids[i].PrevRotation = FQuat(Boids[i].Velocity.Rotation());
 		Boids[i].TargetRotation = FQuat(Boids[i].Velocity.Rotation());
 
-		SpatialHashGrid.InsertBoid(i,Boids[i].Position);
+		SpatialHashGrid.InsertBoid(i,SpatialHashGrid.GetCellVector(Boids[i].Position));
 	}
 }
 
-void ACPP_FlockManager::UpdateBoids()
+void ACPP_FlockManager::UpdateBoids(float DeltaTime)
 {
-	//UE_LOG(LogTemp, Warning, TEXT("UpdateBoids triggered"));
-	//Clears and repopulates the spatial hash grid each frame
-
-	//for (int32 i = 0; i < Boids.Num(); i++)
-	
-	ParallelFor(Boids.Num(), [this](int32 i)
+	//Clears and repopulates the spatial hash grid each update
+	for (int32 i = 0; i < Boids.Num(); i++)
 	{
 		FBoid& Boid = Boids[i];
+		FIntVector OldCell = Boid.OldCellLocation;
+		FIntVector NewCell = SpatialHashGrid.GetCellVector(Boid.Position);
 		
-		if (SpatialHashGrid.HasChangedCell(Boid.OldCellLocation, Boid.Position))
+		if (OldCell != NewCell)
 		{
-			CellMutex.Lock();
-			SpatialHashGrid.RemoveBoid(i, Boid.OldCellLocation);
-			SpatialHashGrid.InsertBoid(i,Boid.Position);
-			CellMutex.Unlock();
+			SpatialHashGrid.RemoveBoid(i, OldCell);
+			SpatialHashGrid.InsertBoid(i, NewCell);
 		}
-		
-		Boid.OldCellLocation = Boid.Position;
-	});
+		Boid.OldCellLocation = NewCell;
+	}
 
 	//Draws the active grid cells
 	if (bDrawGrid)
@@ -156,9 +174,8 @@ void ACPP_FlockManager::UpdateBoids()
 	}
 
 	BoidsBuffer.SetNumUninitialized(Boids.Num());
-	//for (int32 i = 0; i < Boids.Num(); i++)
 	
-	ParallelFor(Boids.Num(), [this](int32 i)
+	ParallelFor(Boids.Num(), [this, DeltaTime](int32 i)
 	{
 		
 		TArray<int32> NeighbourIndecies;
@@ -189,12 +206,12 @@ void ACPP_FlockManager::UpdateBoids()
 		
 		//Boid.Velocity += Boid.Acceleration * BoidUpdateInterval;
 
-		FVector NewVelocity = Boid.Velocity + Boid.Acceleration * BoidUpdateInterval;
+		FVector NewVelocity = Boid.Velocity + Boid.Acceleration * DeltaTime;
 		Boid.Velocity = FMath::Lerp(Boid.Velocity, NewVelocity, 0.2f);
 		
 		Boid.Velocity = Boid.Velocity.GetClampedToMaxSize(Boid.MaxSpeed);
 		Boid.Velocity = Boid.Velocity.GetClampedToSize(Boid.MinSpeed, Boid.MaxSpeed);
-		Boid.Position += Boid.Velocity * BoidUpdateInterval;
+		Boid.Position += Boid.Velocity * DeltaTime;
 
 		Boid.Acceleration = FVector::ZeroVector;
 
@@ -251,6 +268,7 @@ void ACPP_FlockManager::ApplyFlockingForces(FBoid& Boid, int32 BoidIndex, const 
 
 	//Boid.Acceleration += AvoidBoundary(Boid);
 	//Boid.Acceleration += RandomForce;
+
 }
 
 bool ACPP_FlockManager::IsHeadingForCollision(const FBoid& Boid) const

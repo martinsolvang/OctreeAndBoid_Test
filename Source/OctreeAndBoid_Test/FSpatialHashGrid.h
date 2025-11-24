@@ -4,6 +4,9 @@
 
 #include "CoreMinimal.h"
 #include "DrawDebugHelpers.h"
+#include "Templates/UniquePtr.h"
+#include "HAL/CriticalSection.h"
+#include "Containers/Map.h"
 #include "FSpatialHashGrid.generated.h"
 
 USTRUCT()
@@ -18,9 +21,6 @@ struct FSpatialHashGrid
 	private:
 	
 	TMap<FIntVector, TArray<int32>> Cells;
-	
-	FIntVector GetCellVector(const FVector& Position) const;
-
 
 public:
 	UPROPERTY(EditAnywhere, Category="Grid Settings")
@@ -30,10 +30,13 @@ public:
 
 	//Clears the grid of all boids 
 	void ClearGrid();
-
-	void InsertBoid(int32 BoidIndex, const FVector& Position);
 	
-	void RemoveBoid(int32 BoidIndex, const FVector& Position);
+	FIntVector GetCellVector(const FVector& Position) const;
+
+
+	void InsertBoid(int32 BoidIndex, const FIntVector& Cell);
+	
+	void RemoveBoid(int32 BoidIndex, const FIntVector& Cell);
 
 	bool HasChangedCell(const FVector& OldPosition, const FVector&NewPosition) const;
 	

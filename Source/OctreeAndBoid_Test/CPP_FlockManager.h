@@ -46,7 +46,7 @@ struct FBoid
 	float MaxForce;
 
 	UPROPERTY()
-	FVector OldCellLocation;
+	FIntVector OldCellLocation;
 	
 	FBoid()
 		: PrevPosition(FVector::ZeroVector)
@@ -82,9 +82,6 @@ protected:
 	
 
 public:
-	UPROPERTY(EditAnywhere, Category="Flock Settings")
-	float BoidUpdateInterval = 1.0f / 30.0f;
-	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
@@ -155,12 +152,15 @@ public:
 	float InterpElapsed;
 	float InterpDuration;
 
-	FCriticalSection CellMutex;
+	UPROPERTY(EditAnywhere, Category="Flock Settings")
+	float BoidUpdateInterval;
+	
+	float BoidUpdateAccumulator;
 
 	void InitializeBoids();
 
 	UFUNCTION()
-	void UpdateBoids();
+	void UpdateBoids(float DeltaTime);
 	
 	void ApplyFlockingForces(FBoid& Boid, int32 BoidIndex, const TArray<int32>& NeighbourIndecies, TArrayView<const FBoid> BoidsView ) const;
 	bool IsHeadingForCollision(const FBoid& Boid) const;

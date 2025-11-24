@@ -24,20 +24,13 @@ void FSpatialHashGrid::ClearGrid()
 	
 }
 
-
-
-void FSpatialHashGrid::InsertBoid(int32 BoidIndex, const FVector& Position)
+void FSpatialHashGrid::InsertBoid(int32 BoidIndex, const FIntVector& Cell)
 {
-	FIntVector Cell = GetCellVector(Position);
-
 	Cells.FindOrAdd(Cell).Add(BoidIndex);
-	
 }
 
-void FSpatialHashGrid::RemoveBoid(int32 BoidIndex, const FVector& Position)
+void FSpatialHashGrid::RemoveBoid(int32 BoidIndex, const FIntVector& Cell)
 {
-	FIntVector Cell = GetCellVector(Position);
-
 	if (TArray<int32>* CellBoids = Cells.Find(Cell))
 	{
 		CellBoids->Remove(BoidIndex);
